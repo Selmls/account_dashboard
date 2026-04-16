@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import BigInteger, Column, Integer, String, DateTime, Text
 from sqlalchemy.sql import func
 from .db import Base
 
@@ -9,7 +9,9 @@ class TelegramAccountStatus:
     ACTIVE = "active"
     TWO_FA_REQUIRED = "2fa_required"
     BANNED = "banned"
+    FROZEN = "frozen"
     ERROR = "error"
+    FLOOD_WAIT = "flood_wait"
 
     ALL = {
         NEEDS_LOGIN,
@@ -17,7 +19,9 @@ class TelegramAccountStatus:
         ACTIVE,
         TWO_FA_REQUIRED,
         BANNED,
+        FROZEN,
         ERROR,
+        FLOOD_WAIT,
     }
 
 class TelegramAccount(Base):
@@ -35,4 +39,10 @@ class TelegramAccount(Base):
     session_enc = Column(Text, nullable=True)
 
     phone_code_hash = Column(String(128), nullable=True)
+
+    telegram_user_id = Column(BigInteger, nullable=True)
+
+    first_name = Column(String(128), nullable=True)
+    last_name = Column(String(128), nullable=True)
+    used = Column(String(32), nullable=True)
 

@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Telegram Account Dashboard</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 16px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+    input[type=text], input[type=password], input:not([type]) { padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; }
+    button { padding: 8px 12px; border: 1px solid #ddd; border-radius: 10px; background: #fff; cursor: pointer; }
+    button:hover { background: #f6f6f6; }
+    button.danger { border-color: #ffcdd2; color: #c62828; }
+    button.danger:hover { background: #ffebee; }
+    button.primary { border-color: #90caf9; color: #1565c0; background: #e3f2fd; }
+    button.primary:hover { background: #bbdefb; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; vertical-align: top; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #666; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #ddd; }
+    .status-active { border-color: #b9f6ca; background: #e8f5e9; }
+    .status-error, .status-banned, .status-frozen { border-color: #ffcdd2; background: #ffebee; color: #c62828; }
+    .status-code_sent, .status-needs_login, .status-2fa_required, .status-flood_wait { border-color: #ffe0b2; background: #fff3e0; }
+    .muted { color: #777; font-size: 12px; }
+    pre { background: #f7f7f7; padding: 12px; border-radius: 10px; overflow: auto; }
+    .right { text-align: right; }
+    hr { border: none; border-top: 1px solid #eee; margin: 16px 0; }
+
+    /* Spinner */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ddd;
+      border-top-color: #555; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Toast */
+    #toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: #222; color: #fff; padding: 10px 20px; border-radius: 10px; font-size: 13px;
+      opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; white-space: pre-line; text-align: center; }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* Filter panel */
+    #filterPanel { background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; }
+    .filter-group { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+    .filter-group:last-child { margin-bottom: 0; }
+    .filter-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #888; min-width: 56px; }
+    .filter-options { display: flex; flex-wrap: wrap; gap: 6px; }
+    .filter-options label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 6px; border: 1px solid transparent; }
+    .filter-options label:hover { background: #f0f0f0; }
+    .filter-options input[type=checkbox] { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Telegram Account Dashboard</h1>
+
+  <div class="row">
+    <button id="reloadBtn">Reload accounts</button>
+    <button id="addBtn">Add account</button>
+    <button id="exportBtn" class="primary">Export CSV</button>
+    <span class="muted" id="lastLoaded"></span>
+    <span style="flex:1"></span>
+    <input id="filterText" placeholder="Search by phone / name / ID…" style="width:220px;" />
+  </div>
+
+  <!-- Filter panel -->
+  <div id="filterPanel">
+    <div class="filter-group">
+      <span class="filter-label">Status</span>
+      <div class="filter-options" id="statusFilters"><span class="muted">—</span></div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Country</span>
+      <div class="filter-options" id="countryFilters"><span class="muted">—</span></div>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Agent</span>
+      <div class="filter-options" id="agentFilters"><span class="muted">—</span></div>
+    </div>
+  </div>
+
+  <div id="addForm" style="display:none; margin-bottom:16px;">
+    <div class="row">
+      <input id="addPhone" placeholder="Phone (+123456789)" />
+      <input id="addCountry" placeholder="Country (optional)" />
+      <input id="addAgent" placeholder="Agent (optional)" />
+      <button id="saveAdd">Save</button>
+      <button id="cancelAdd">Cancel</button>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>User ID</th>
+        <th>Phone</th>
+        <th>Name</th>
+        <th>Country</th>
+        <th>Agent</th>
+        <th>Status</th>
+        <th>Used for</th>
+        <th class="right">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+  <h2 style="margin-top:24px;">Account detail</h2>
+  <pre id="detail">{}</pre>
+
+  <div id="toast"></div>
+
+  <!-- Backdrop -->
+  <div id="editBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35);"></div>
+
+  <!-- Edit / Manage modal -->
+  <div id="editModal" style="display:none; position:fixed; left:50%; top:8%; transform:translateX(-50%);
+    width:min(680px, 92vw); background:#fff; border:1px solid #eee; border-radius:16px; padding:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,.15); max-height:84vh; overflow-y:auto;">
+
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;">
+      <div>
+        <div style="font-weight:700; font-size:16px;">Edit account</div>
+        <div class="muted" id="editModalSubtitle"></div>
+      </div>
+      <button id="editModalCloseBtn">Close</button>
+    </div>
+
+    <div class="row">
+      <input id="editAgent" placeholder="Agent" style="flex:1;" />
+      <input id="editCountry" placeholder="Country" style="flex:1;" />
+      <button id="editSaveBtn">Save changes</button>
+    </div>
+
+    <hr>
+
+    <div id="editStatusSection"></div>
+
+    <pre id="editOutput" style="margin-top:12px;">{}</pre>
+  </div>
+
+  <script>
+    const tbody = document.getElementById("tbody");
+    const detail = document.getElementById("detail");
+    const filterTextEl = document.getElementById("filterText");
+    const lastLoaded = document.getElementById("lastLoaded");
+    const addBtn = document.getElementById("addBtn");
+    const addForm = document.getElementById("addForm");
+
+    let accounts = [];
+    let editAccountId = null;
+
+    // active filter sets — empty means "show all"
+    const activeFilters = { statuses: new Set(), countries: new Set(), agents: new Set() };
+
+    // ── Checkbox filters ────────────────────────────────────────
+    function updateFilterOptions() {
+      const unique = key => [...new Set(accounts.map(a => a[key]).filter(Boolean))].sort();
+
+      renderCheckboxes("statusFilters",  unique("status"),  activeFilters.statuses,  "statuses");
+      renderCheckboxes("countryFilters", unique("country"), activeFilters.countries, "countries");
+      renderCheckboxes("agentFilters",   unique("agent"),   activeFilters.agents,    "agents");
+    }
+
+    function renderCheckboxes(containerId, values, activeSet, filterKey) {
+      const el = document.getElementById(containerId);
+      if (!values.length) { el.innerHTML = '<span class="muted">—</span>'; return; }
+      el.innerHTML = values.map(v => `
+        <label>
+          <input type="checkbox" value="${v}" ${activeSet.has(v) ? "checked" : ""}
+            onchange="toggleFilter('${filterKey}', this)" />
+          ${v}
+        </label>`).join("");
+    }
+
+    function toggleFilter(filterKey, checkbox) {
+      const set = activeFilters[filterKey];
+      checkbox.checked ? set.add(checkbox.value) : set.delete(checkbox.value);
+      render();
+    }
+
+    // ── Table render ────────────────────────────────────────────
+    function badge(status) {
+      return `<span class="badge status-${String(status || "").replaceAll(" ", "_")}">${status ?? ""}</span>`;
+    }
+
+    function row(a) {
+      return `
+        <tr data-id="${a.id}">
+          <td>${a.telegram_user_id ?? "—"}</td>
+          <td>${a.phone ?? ""}</td>
+          <td>${[a.first_name, a.last_name].filter(Boolean).join(" ") || ""}</td>
+          <td>${a.country ?? ""}</td>
+          <td>${a.agent ?? ""}</td>
+          <td>${badge(a.status)}</td>
+          <td>
+            <select onchange="updateUsed(${a.id}, this.value)" style="padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px;">
+              <option value="" ${!a.used ? "selected" : ""}>—</option>
+              <option value="bot"    ${a.used === "bot"    ? "selected" : ""}>bot</option>
+              <option value="scrape" ${a.used === "scrape" ? "selected" : ""}>scrape</option>
+              <option value="dev"    ${a.used === "dev"    ? "selected" : ""}>dev</option>
+            </select>
+          </td>
+          <td class="right">
+            <button onclick="openEditModal(${a.id})">Edit</button>
+            <button onclick="latest777(${a.id})">777000</button>
+          </td>
+        </tr>`;
+    }
+
+    function render() {
+      const q = filterTextEl.value.toLowerCase().trim();
+      const filtered = accounts.filter(a => {
+        if (q && !(
+          String(a.id).includes(q) ||
+          (a.phone || "").toLowerCase().includes(q) ||
+          ([a.first_name, a.last_name].filter(Boolean).join(" ")).toLowerCase().includes(q)
+        )) return false;
+        if (activeFilters.statuses.size  && !activeFilters.statuses.has(a.status))   return false;
+        if (activeFilters.countries.size && !activeFilters.countries.has(a.country)) return false;
+        if (activeFilters.agents.size    && !activeFilters.agents.has(a.agent))      return false;
+        return true;
+      });
+      tbody.innerHTML = filtered.map(row).join("");
+    }
+
+    async function loadAccounts() {
+      const r = await fetch("/accounts");
+      const j = await r.json();
+      accounts = j.accounts || [];
+      updateFilterOptions();
+      render();
+      lastLoaded.textContent = "Loaded: " + new Date().toLocaleString();
+    }
+
+    async function latest777(id) {
+      detail.textContent = "Fetching latest 777000 message for " + id + "...";
+      const r = await fetch(`/accounts/${id}/telegram/777000/latest`);
+      const j = await r.json();
+      detail.textContent = JSON.stringify(j, null, 2);
+    }
+
+    // ── Edit modal ──────────────────────────────────────────────
+    const editModal    = document.getElementById("editModal");
+    const editBackdrop = document.getElementById("editBackdrop");
+    const editOutput   = document.getElementById("editOutput");
+
+    function openEditModal(id) {
+      const a = accounts.find(x => x.id === id);
+      if (!a) return;
+      editAccountId = id;
+      document.getElementById("editModalSubtitle").textContent =
+        `ID: ${a.id} · ${a.phone} · ${[a.first_name, a.last_name].filter(Boolean).join(" ") || "no name"}`;
+      document.getElementById("editAgent").value   = a.agent   || "";
+      document.getElementById("editCountry").value = a.country || "";
+      editOutput.textContent = "{}";
+      renderStatusSection(a);
+      editModal.style.display    = "block";
+      editBackdrop.style.display = "block";
+    }
+
+    function closeEditModal() {
+      editModal.style.display    = "none";
+      editBackdrop.style.display = "none";
+      editAccountId = null;
+    }
+
+    document.getElementById("editModalCloseBtn").addEventListener("click", closeEditModal);
+    editBackdrop.addEventListener("click", closeEditModal);
+
+    document.getElementById("editSaveBtn").addEventListener("click", async () => {
+      if (!editAccountId) return;
+      const agent   = document.getElementById("editAgent").value.trim();
+      const country = document.getElementById("editCountry").value.trim();
+      const r = await fetch(`/accounts/${editAccountId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent: agent || null, country: country || null }),
+      });
+      const j = await r.json();
+      editOutput.textContent = JSON.stringify(j, null, 2);
+      await loadAccounts();
+      const a = accounts.find(x => x.id === editAccountId);
+      if (a) renderStatusSection(a);
+    });
+
+    function renderStatusSection(a) {
+      const sec = document.getElementById("editStatusSection");
+      const { status, phone } = a;
+
+      if (status === "needs_login") {
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">Account needs login — send a code to start.</div>
+          <div class="row">
+            <button onclick="editSendCode()">Send Code</button>
+            <button class="danger" onclick="editDelete()">Delete account</button>
+          </div>`;
+
+      } else if (status === "code_sent") {
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">Code sent to ${phone}. Enter it below.</div>
+          <div class="row">
+            <input id="editCode" placeholder="Code from Telegram" />
+            <button onclick="editConfirmCode()">Confirm</button>
+            <button onclick="editSendCode()">Resend code</button>
+            <button class="danger" onclick="editDelete()">Delete account</button>
+          </div>`;
+
+      } else if (status === "2fa_required") {
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">2-step verification required.</div>
+          <div class="row">
+            <input id="editCode" placeholder="Code from Telegram" />
+            <input type="password" id="editPassword" placeholder="2FA password" />
+            <button onclick="editConfirmCode()">Confirm</button>
+            <button onclick="editSendCode()">Resend code</button>
+            <button class="danger" onclick="editDelete()">Delete account</button>
+          </div>`;
+
+      } else if (status === "active") {
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">Account is active.</div>
+          <button onclick="editRefresh()">Refresh session</button>`;
+
+      } else if (status === "banned") {
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">Status: <strong>banned</strong></div>
+          <button class="danger" onclick="editDelete()">Delete account</button>`;
+
+      } else if (status === "frozen") {
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">Status: <strong>frozen</strong> — account is temporarily restricted by Telegram.</div>
+          <button class="danger" onclick="editDelete()">Delete account</button>`;
+
+      } else if (["error", "flood_wait"].includes(status)) {
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">Status: <strong>${status}</strong></div>
+          <div class="row">
+            <button onclick="editSendCode()">Resend code</button>
+            <button class="danger" onclick="editDelete()">Delete account</button>
+          </div>`;
+
+      } else {
+        sec.innerHTML = `<div class="muted">Status: ${status}</div>`;
+      }
+    }
+
+    async function updateUsed(id, value) {
+      await fetch(`/accounts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ used: value || null }),
+      });
+      const a = accounts.find(x => x.id === id);
+      if (a) a.used = value || null;
+    }
+
+    async function editSendCode() {
+      if (!editAccountId) return;
+      editOutput.textContent = "Sending code...";
+      const r = await fetch(`/accounts/${editAccountId}/send_code`, { method: "POST" });
+      const j = await r.json();
+      editOutput.textContent = JSON.stringify(j, null, 2);
+      await loadAccounts();
+      const a = accounts.find(x => x.id === editAccountId);
+      if (a) renderStatusSection(a);
+    }
+
+    async function editConfirmCode() {
+      if (!editAccountId) return;
+      const code     = (document.getElementById("editCode")?.value || "").trim();
+      const password = document.getElementById("editPassword")?.value || null;
+      if (!code) { alert("Code is required"); return; }
+      editOutput.textContent = "Confirming...";
+      const r = await fetch(`/accounts/${editAccountId}/confirm_code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, password: password || null }),
+      });
+      const j = await r.json();
+      editOutput.textContent = JSON.stringify(j, null, 2);
+      await loadAccounts();
+      const a = accounts.find(x => x.id === editAccountId);
+      if (a) {
+        renderStatusSection(a);
+        if (j.ok && j.status === "active") closeEditModal();
+      }
+    }
+
+    async function editRefresh() {
+      if (!editAccountId) return;
+      editOutput.textContent = "Refreshing...";
+      const r = await fetch(`/accounts/${editAccountId}/refresh`, { method: "POST" });
+      const j = await r.json();
+      editOutput.textContent = JSON.stringify(j, null, 2);
+      await loadAccounts();
+      const a = accounts.find(x => x.id === editAccountId);
+      if (a) {
+        document.getElementById("editModalSubtitle").textContent =
+          `ID: ${a.id} · ${a.phone} · ${[a.first_name, a.last_name].filter(Boolean).join(" ") || "no name"}`;
+        renderStatusSection(a);
+      }
+    }
+
+    async function editDelete() {
+      if (!editAccountId) return;
+      if (!confirm("Delete this account? This cannot be undone.")) return;
+      const r = await fetch(`/accounts/${editAccountId}`, { method: "DELETE" });
+      const j = await r.json();
+      if (j.ok) { closeEditModal(); await loadAccounts(); }
+    }
+
+    // ── Add account form ────────────────────────────────────────
+    addBtn.addEventListener("click", () => { addForm.style.display = "block"; });
+    document.getElementById("cancelAdd").addEventListener("click", () => { addForm.style.display = "none"; });
+
+    document.getElementById("saveAdd").addEventListener("click", async () => {
+      const phone   = document.getElementById("addPhone").value.trim();
+      const country = document.getElementById("addCountry").value.trim();
+      const agent   = document.getElementById("addAgent").value.trim();
+      if (!phone) { alert("Phone is required"); return; }
+      const res = await fetch("/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, country: country || null, agent: agent || null }),
+      });
+      const text = await res.text();
+      detail.textContent = text;
+      if (!res.ok) { alert("Account saving failed. See detail panel."); return; }
+      document.getElementById("addPhone").value   = "";
+      document.getElementById("addCountry").value = "";
+      document.getElementById("addAgent").value   = "";
+      addForm.style.display = "none";
+      await loadAccounts();
+      openEditModal(JSON.parse(text).id);
+    });
+
+    // ── Toast ───────────────────────────────────────────────────
+    let toastTimer;
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove("show"), 4000);
+    }
+
+    // ── Toolbar events ──────────────────────────────────────────
+    document.getElementById("reloadBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("reloadBtn");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Reloading…';
+
+      let toastMsg = "All accounts reloaded";
+      try {
+        const r = await fetch("/accounts/refresh_all", { method: "POST" });
+        const j = await r.json();
+        if (j.results) {
+          const counts = {};
+          for (const res of j.results) {
+            const s = res.status || (res.error === "no_session_enc" ? "no session" : "error");
+            counts[s] = (counts[s] || 0) + 1;
+          }
+          const summary = Object.entries(counts).map(([s, n]) => `${n} ${s}`).join(" · ");
+          toastMsg = `${j.results.length} accounts refreshed\n${summary}`;
+        }
+      } catch (e) {
+        toastMsg = "Reload failed: " + e.message;
+      }
+
+      await loadAccounts();
+      btn.disabled = false;
+      btn.textContent = "Reload accounts";
+      showToast(toastMsg);
+    });
+    filterTextEl.addEventListener("input", render);
+
+    // ── Export CSV ──────────────────────────────────────────────
+    document.getElementById("exportBtn").addEventListener("click", () => {
+      if (!accounts.length) { showToast("No accounts to export"); return; }
+
+      const escape = v => {
+        if (v == null) return "";
+        const s = String(v);
+        return s.includes(",") || s.includes('"') || s.includes("\n")
+          ? `"${s.replaceAll('"', '""')}"` : s;
+      };
+
+      const headers = ["User ID", "Phone", "Name", "Country", "Agent", "Status", "Used for"];
+      const rows = accounts.map(a => [
+        a.telegram_user_id,
+        a.phone,
+        [a.first_name, a.last_name].filter(Boolean).join(" "),
+        a.country,
+        a.agent,
+        a.status,
+        a.used,
+      ].map(escape).join(","));
+
+      const csv = [headers.join(","), ...rows].join("\r\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `accounts_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    loadAccounts();
+  </script>
+</body>
+</html>
