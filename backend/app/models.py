@@ -3,6 +3,8 @@ from sqlalchemy.sql import func
 from .db import Base
 
 
+REGIONS = ["Europe", "North America", "South America", "Asia", "Australia"]
+
 class TelegramAccountStatus:
     NEEDS_LOGIN = "needs_login"
     CODE_SENT = "code_sent"
@@ -45,4 +47,5 @@ class TelegramAccount(Base):
     first_name = Column(String(128), nullable=True)
     last_name = Column(String(128), nullable=True)
     used = Column(String(32), nullable=True)
+    region = Column(String(64), nullable=True)
 

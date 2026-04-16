@@ -75,6 +75,10 @@
       <span class="filter-label">Agent</span>
       <div class="filter-options" id="agentFilters"><span class="muted">—</span></div>
     </div>
+    <div class="filter-group">
+      <span class="filter-label">Region</span>
+      <div class="filter-options" id="regionFilters"><span class="muted">—</span></div>
+    </div>
   </div>
 
   <div id="addForm" style="display:none; margin-bottom:16px;">
@@ -82,6 +86,9 @@
       <input id="addPhone" placeholder="Phone (+123456789)" />
       <input id="addCountry" placeholder="Country (optional)" />
       <input id="addAgent" placeholder="Agent (optional)" />
+      <select id="addRegion" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px;">
+        <option value="">Region (optional)</option>
+      </select>
       <button id="saveAdd">Save</button>
       <button id="cancelAdd">Cancel</button>
     </div>
@@ -96,6 +103,7 @@
         <th>Country</th>
         <th>Agent</th>
         <th>Status</th>
+        <th>Region</th>
         <th>Used for</th>
         <th class="right">Actions</th>
       </tr>
@@ -127,6 +135,9 @@
     <div class="row">
       <input id="editAgent" placeholder="Agent" style="flex:1;" />
       <input id="editCountry" placeholder="Country" style="flex:1;" />
+      <select id="editRegion" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px;">
+        <option value="">Region</option>
+      </select>
       <button id="editSaveBtn">Save changes</button>
     </div>
 
@@ -145,11 +156,19 @@
     const addBtn = document.getElementById("addBtn");
     const addForm = document.getElementById("addForm");
 
+    const REGIONS = ["Europe", "North America", "South America", "Asia", "Australia"];
+
+    // Populate static region selects (add form + edit modal)
+    ["addRegion", "editRegion"].forEach(id => {
+      const sel = document.getElementById(id);
+      REGIONS.forEach(r => { const o = document.createElement("option"); o.value = o.textContent = r; sel.appendChild(o); });
+    });
+
     let accounts = [];
     let editAccountId = null;
 
     // active filter sets — empty means "show all"
-    const activeFilters = { statuses: new Set(), countries: new Set(), agents: new Set() };
+    const activeFilters = { statuses: new Set(), countries: new Set(), agents: new Set(), regions: new Set() };
 
     // ── Checkbox filters ────────────────────────────────────────
     function updateFilterOptions() {
@@ -158,6 +177,7 @@
       renderCheckboxes("statusFilters",  unique("status"),  activeFilters.statuses,  "statuses");
       renderCheckboxes("countryFilters", unique("country"), activeFilters.countries, "countries");
       renderCheckboxes("agentFilters",   unique("agent"),   activeFilters.agents,    "agents");
+      renderCheckboxes("regionFilters",  unique("region"),  activeFilters.regions,   "regions");
     }
 
     function renderCheckboxes(containerId, values, activeSet, filterKey) {
@@ -192,6 +212,9 @@
           <td>${a.agent ?? ""}</td>
           <td>${badge(a.status)}</td>
           <td>
+            ${a.region ?? "—"}
+          </td>
+          <td>
             <select onchange="updateUsed(${a.id}, this.value)" style="padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px;">
               <option value="" ${!a.used ? "selected" : ""}>—</option>
               <option value="bot"    ${a.used === "bot"    ? "selected" : ""}>bot</option>
@@ -217,6 +240,7 @@
         if (activeFilters.statuses.size  && !activeFilters.statuses.has(a.status))   return false;
         if (activeFilters.countries.size && !activeFilters.countries.has(a.country)) return false;
         if (activeFilters.agents.size    && !activeFilters.agents.has(a.agent))      return false;
+        if (activeFilters.regions.size   && !activeFilters.regions.has(a.region))    return false;
         return true;
       });
       tbody.innerHTML = filtered.map(row).join("");
@@ -251,6 +275,7 @@
         `ID: ${a.id} · ${a.phone} · ${[a.first_name, a.last_name].filter(Boolean).join(" ") || "no name"}`;
       document.getElementById("editAgent").value   = a.agent   || "";
       document.getElementById("editCountry").value = a.country || "";
+      document.getElementById("editRegion").value  = a.region  || "";
       editOutput.textContent = "{}";
       renderStatusSection(a);
       editModal.style.display    = "block";
@@ -270,10 +295,11 @@
       if (!editAccountId) return;
       const agent   = document.getElementById("editAgent").value.trim();
       const country = document.getElementById("editCountry").value.trim();
+      const region  = document.getElementById("editRegion").value;
       const r = await fetch(`/accounts/${editAccountId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent: agent || null, country: country || null }),
+        body: JSON.stringify({ agent: agent || null, country: country || null, region: region || null }),
       });
       const j = await r.json();
       editOutput.textContent = JSON.stringify(j, null, 2);
@@ -416,11 +442,12 @@
       const phone   = document.getElementById("addPhone").value.trim();
       const country = document.getElementById("addCountry").value.trim();
       const agent   = document.getElementById("addAgent").value.trim();
+      const region  = document.getElementById("addRegion").value;
       if (!phone) { alert("Phone is required"); return; }
       const res = await fetch("/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, country: country || null, agent: agent || null }),
+        body: JSON.stringify({ phone, country: country || null, agent: agent || null, region: region || null }),
       });
       const text = await res.text();
       detail.textContent = text;
@@ -428,6 +455,7 @@
       document.getElementById("addPhone").value   = "";
       document.getElementById("addCountry").value = "";
       document.getElementById("addAgent").value   = "";
+      document.getElementById("addRegion").value  = "";
       addForm.style.display = "none";
       await loadAccounts();
       openEditModal(JSON.parse(text).id);
@@ -484,7 +512,7 @@
           ? `"${s.replaceAll('"', '""')}"` : s;
       };
 
-      const headers = ["User ID", "Phone", "Name", "Country", "Agent", "Status", "Used for"];
+      const headers = ["User ID", "Phone", "Name", "Country", "Agent", "Status", "Region", "Used for"];
       const rows = accounts.map(a => [
         a.telegram_user_id,
         a.phone,
@@ -492,6 +520,7 @@
         a.country,
         a.agent,
         a.status,
+        a.region,
         a.used,
       ].map(escape).join(","));
 

@@ -27,7 +27,7 @@ Base.metadata.create_all(bind=engine)
 
 # Simple migration: add new columns if they don't exist yet
 with engine.connect() as _conn:
-    for _col in ("first_name VARCHAR(128)", "last_name VARCHAR(128)", "used VARCHAR(32)", "telegram_user_id BIGINT"):
+    for _col in ("first_name VARCHAR(128)", "last_name VARCHAR(128)", "used VARCHAR(32)", "telegram_user_id BIGINT", "region VARCHAR(64)"):
         try:
             _conn.execute(text(f"ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS {_col}"))
             _conn.commit()
@@ -57,11 +57,13 @@ class AccountCreateIn(BaseModel):
     phone: str
     country: Optional[str] = None
     agent: Optional[str] = None
+    region: Optional[str] = None
 
 class AccountUpdateIn(BaseModel):
     country: Optional[str] = Field(default=None, max_length=128)
     agent: Optional[str] = Field(default=None, max_length=64)
     used: Optional[str] = Field(default=None, max_length=32)
+    region: Optional[str] = Field(default=None, max_length=64)
 
 @app.get("/")
 def ui_home():
@@ -85,6 +87,7 @@ def create_account(payload: AccountCreateIn, db: Session = Depends(get_db)):
         phone=phone,
         country=payload.country,
         agent=payload.agent,
+        region=payload.region,
         status=TelegramAccountStatus.NEEDS_LOGIN,
     )
     db.add(acc)
@@ -104,6 +107,8 @@ def update_account(account_id: int, payload: AccountUpdateIn, db: Session = Depe
         acc.agent = payload.agent or None
     if "used" in payload.model_fields_set:
         acc.used = payload.used or None
+    if "region" in payload.model_fields_set:
+        acc.region = payload.region or None
     db.commit()
     return {"ok": True}
 
@@ -132,6 +137,7 @@ def list_accounts(db: Session = Depends(get_db)):
                 "last_name": a.last_name,
                 "used": a.used,
                 "telegram_user_id": a.telegram_user_id,
+                "region": a.region,
                 "has_session": bool(a.session_enc),
                 "has_login_session": bool(a.login_session_enc),
             }
