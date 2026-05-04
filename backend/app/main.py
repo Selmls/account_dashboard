@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import select, or_, text
+from sqlalchemy import select, or_, text, inspect as sa_inspect
 from dotenv import load_dotenv
 from telethon.errors import SessionPasswordNeededError, PhoneNumberBannedError, FloodWaitError, UserDeactivatedBanError, UserDeactivatedError, PeerIdInvalidError
 from fastapi.staticfiles import StaticFiles
@@ -25,11 +25,16 @@ load_dotenv()
 # Create tables on startup (MVP approach)
 Base.metadata.create_all(bind=engine)
 
-# Simple migration: add new columns if they don't exist yet
+# Simple migration: add new columns if they don't exist yet.
+# SQLite has no `ADD COLUMN IF NOT EXISTS`, so inspect first and only add what's missing.
+_existing_cols = {c["name"] for c in sa_inspect(engine).get_columns("telegram_accounts")}
 with engine.connect() as _conn:
-    for _col in ("first_name VARCHAR(128)", "last_name VARCHAR(128)", "used VARCHAR(32)", "telegram_user_id BIGINT", "region VARCHAR(64)"):
+    for _col in ("first_name VARCHAR(128)", "last_name VARCHAR(128)", "used VARCHAR(32)", "telegram_user_id BIGINT", "region VARCHAR(64)", "created_at TIMESTAMP"):
+        _name = _col.split()[0]
+        if _name in _existing_cols:
+            continue
         try:
-            _conn.execute(text(f"ALTER TABLE telegram_accounts ADD COLUMN IF NOT EXISTS {_col}"))
+            _conn.execute(text(f"ALTER TABLE telegram_accounts ADD COLUMN {_col}"))
             _conn.commit()
         except Exception:
             pass
@@ -138,6 +143,7 @@ def list_accounts(db: Session = Depends(get_db)):
                 "used": a.used,
                 "telegram_user_id": a.telegram_user_id,
                 "region": a.region,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
                 "has_session": bool(a.session_enc),
                 "has_login_session": bool(a.login_session_enc),
             }

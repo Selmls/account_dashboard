@@ -1,9 +1,18 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import BigInteger, Column, Integer, String, DateTime, Text
 from sqlalchemy.sql import func
 from .db import Base
 
 
 REGIONS = ["Europe", "North America", "South America", "Asia", "Australia"]
+
+UTC_PLUS_2 = timezone(timedelta(hours=2))
+
+
+def now_utc_plus_2() -> datetime:
+    """Wall-clock time in UTC+2 as a naive datetime (SQLite-friendly)."""
+    return datetime.now(UTC_PLUS_2).replace(tzinfo=None)
 
 class TelegramAccountStatus:
     NEEDS_LOGIN = "needs_login"
@@ -48,4 +57,6 @@ class TelegramAccount(Base):
     last_name = Column(String(128), nullable=True)
     used = Column(String(32), nullable=True)
     region = Column(String(64), nullable=True)
+
+    created_at = Column(DateTime, nullable=True, default=now_utc_plus_2)
 

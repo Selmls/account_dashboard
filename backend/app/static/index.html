@@ -123,6 +123,27 @@
     </div>
   </div>
 
+  <!-- 777000 service message modal -->
+  <div id="serviceBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35);"></div>
+  <div id="serviceModal" style="display:none; position:fixed; left:50%; top:10%; transform:translateX(-50%);
+    width:min(520px, 92vw); background:#fff; border:1px solid #eee; border-radius:16px; padding:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,.15); max-height:84vh; overflow-y:auto;">
+
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;">
+      <div>
+        <div style="font-weight:700; font-size:16px;">Telegram service message (777000)</div>
+        <div class="muted" id="serviceSubtitle"></div>
+      </div>
+    </div>
+
+    <div id="serviceBody" style="display:flex; flex-direction:column; gap:8px;"></div>
+
+    <div class="row" style="margin-top:16px; justify-content:flex-end;">
+      <button id="serviceRefetchBtn">Fetch latest</button>
+      <button id="serviceOkBtn" class="primary">OK</button>
+    </div>
+  </div>
+
   <!-- Batch add modal -->
   <div id="batchBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35);"></div>
   <div id="batchModal" style="display:none; position:fixed; left:50%; top:8%; transform:translateX(-50%);
@@ -179,6 +200,7 @@
         <th>Status</th>
         <th>Region</th>
         <th>Used for</th>
+        <th>Created (UTC+2)</th>
         <th class="right">Actions</th>
       </tr>
     </thead>
@@ -353,6 +375,13 @@
       return `<span class="badge status-${String(status || "").replaceAll(" ", "_")}">${status ?? ""}</span>`;
     }
 
+    function formatCreated(iso) {
+      if (!iso) return "—";
+      // Backend sends a naive ISO string already in UTC+2 — display it verbatim, no Date() conversion
+      const m = iso.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+      return m ? `${m[1]} ${m[2]}` : iso;
+    }
+
     function row(a) {
       return `
         <tr data-id="${a.id}">
@@ -373,9 +402,10 @@
               <option value="dev"    ${a.used === "dev"    ? "selected" : ""}>dev</option>
             </select>
           </td>
+          <td>${formatCreated(a.created_at)}</td>
           <td class="right">
             <button onclick="openEditModal(${a.id})">Edit</button>
-            <button onclick="latest777(${a.id})">777000</button>
+            <button onclick="openServiceModal(${a.id})">777000</button>
             <button class="danger" onclick="cleanAccount(${a.id})">Clean</button>
           </td>
         </tr>`;
@@ -407,12 +437,59 @@
       lastLoaded.textContent = "Loaded: " + new Date().toLocaleString();
     }
 
-    async function latest777(id) {
-      detail.textContent = "Fetching latest 777000 message for " + id + "...";
-      const r = await fetch(`/accounts/${id}/telegram/777000/latest`);
-      const j = await r.json();
-      detail.textContent = JSON.stringify(j, null, 2);
+    // ── 777000 service message modal ────────────────────────────
+    const serviceModal     = document.getElementById("serviceModal");
+    const serviceBackdrop  = document.getElementById("serviceBackdrop");
+    const serviceBody      = document.getElementById("serviceBody");
+    const serviceSubtitle  = document.getElementById("serviceSubtitle");
+    let serviceAccountId   = null;
+
+    function openServiceModal(id) {
+      serviceAccountId = id;
+      const a = accounts.find(x => x.id === id);
+      serviceSubtitle.textContent = a ? a.phone : `account #${id}`;
+      serviceModal.style.display    = "block";
+      serviceBackdrop.style.display = "block";
+      fetchServiceMessage();
     }
+    function closeServiceModal() {
+      serviceModal.style.display    = "none";
+      serviceBackdrop.style.display = "none";
+      serviceAccountId = null;
+    }
+
+    async function fetchServiceMessage() {
+      if (!serviceAccountId) return;
+      serviceBody.innerHTML = `<div class="muted">Fetching…</div>`;
+      try {
+        const r = await fetch(`/accounts/${serviceAccountId}/telegram/777000/latest`);
+        const j = await r.json();
+        if (!r.ok) {
+          serviceBody.innerHTML = `<div style="color:#c62828;"></div>`;
+          serviceBody.firstChild.textContent = j.detail || `HTTP ${r.status}`;
+          return;
+        }
+        if (!j.message) {
+          serviceBody.innerHTML = `<div class="muted">No message found.</div>`;
+          return;
+        }
+        const date = j.message.date ? new Date(j.message.date).toLocaleString() : "—";
+        serviceBody.innerHTML = `
+          <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Date</div>
+          <div id="serviceDate" style="font-size:14px;"></div>
+          <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; margin-top:8px;">Message</div>
+          <pre id="serviceText" style="white-space:pre-wrap; word-break:break-word; margin:0;"></pre>`;
+        document.getElementById("serviceDate").textContent = date;
+        document.getElementById("serviceText").textContent = j.message.text || "";
+      } catch (e) {
+        serviceBody.innerHTML = `<div style="color:#c62828;"></div>`;
+        serviceBody.firstChild.textContent = e.message;
+      }
+    }
+
+    document.getElementById("serviceRefetchBtn").addEventListener("click", fetchServiceMessage);
+    document.getElementById("serviceOkBtn").addEventListener("click", closeServiceModal);
+    serviceBackdrop.addEventListener("click", closeServiceModal);
 
     async function cleanAccount(id) {
       const a = accounts.find(x => x.id === id);
@@ -906,7 +983,7 @@
           ? `"${s.replaceAll('"', '""')}"` : s;
       };
 
-      const headers = ["User ID", "Phone", "Name", "Country", "Agent", "Status", "Region", "Used for"];
+      const headers = ["User ID", "Phone", "Name", "Country", "Agent", "Status", "Region", "Used for", "Created (UTC+2)"];
       const rows = accounts.map(a => [
         a.telegram_user_id,
         a.phone,
@@ -916,6 +993,7 @@
         a.status,
         a.region,
         a.used,
+        formatCreated(a.created_at),
       ].map(escape).join(","));
 
       const csv = [headers.join(","), ...rows].join("\r\n");
