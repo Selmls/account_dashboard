@@ -193,14 +193,19 @@ async def confirm_code(account_id: int, payload: ConfirmCodeIn, db: Session = De
 
     await client.connect()
     try:
-        try: 
+        try:
             await client.sign_in(phone=acc.phone, code=payload.code, phone_code_hash=acc.phone_code_hash)
         except SessionPasswordNeededError:
             if not payload.password:
                 acc.status = TelegramAccountStatus.TWO_FA_REQUIRED
                 db.commit()
                 raise HTTPException(status_code=400, detail="2-step password required. Send password in request.")
-            await client.sign_in(password=payload.password)
+            try:
+                await client.sign_in(password=payload.password)
+            except Exception as e:
+                acc.status = TelegramAccountStatus.TWO_FA_REQUIRED
+                db.commit()
+                raise HTTPException(status_code=400, detail=f"2FA password rejected: {str(e)}")
         except Exception as e:
             acc.status = TelegramAccountStatus.ERROR
             db.commit()

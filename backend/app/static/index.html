@@ -81,16 +81,44 @@
     </div>
   </div>
 
-  <div id="addForm" style="display:none; margin-bottom:16px;">
-    <div class="row">
-      <input id="addPhone" placeholder="Phone (+123456789)" />
-      <input id="addCountry" placeholder="Country (optional)" />
-      <input id="addAgent" placeholder="Agent (optional)" />
-      <select id="addRegion" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px;">
-        <option value="">Region (optional)</option>
-      </select>
-      <button id="saveAdd">Save</button>
-      <button id="cancelAdd">Cancel</button>
+  <!-- Add account modal -->
+  <div id="addBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35);"></div>
+  <div id="addModal" style="display:none; position:fixed; left:50%; top:10%; transform:translateX(-50%);
+    width:min(440px, 92vw); background:#fff; border:1px solid #eee; border-radius:16px; padding:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,.15); max-height:84vh; overflow-y:auto;">
+
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;">
+      <div style="font-weight:700; font-size:16px;">Add account</div>
+      <button id="cancelAdd">Close</button>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Phone *</span>
+        <input id="addPhone" placeholder="+123456789" />
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Country</span>
+        <input id="addCountry" placeholder="Country (optional)" />
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Agent</span>
+        <input id="addAgent" placeholder="Agent (optional)" />
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Region</span>
+        <select id="addRegion" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px;">
+          <option value="">Region (optional)</option>
+        </select>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">2FA password</span>
+        <input type="password" id="addPassword" placeholder="2FA password (optional)" value="0211" />
+      </label>
+    </div>
+
+    <div class="row" style="margin-top:16px; justify-content:flex-end;">
+      <button id="saveAdd" class="primary">Save</button>
     </div>
   </div>
 
@@ -154,9 +182,82 @@
     const filterTextEl = document.getElementById("filterText");
     const lastLoaded = document.getElementById("lastLoaded");
     const addBtn = document.getElementById("addBtn");
-    const addForm = document.getElementById("addForm");
+    const addModal = document.getElementById("addModal");
+    const addBackdrop = document.getElementById("addBackdrop");
+
+    function openAddModal() {
+      autoCountrySet = "";
+      addModal.style.display    = "block";
+      addBackdrop.style.display = "block";
+      document.getElementById("addPhone").focus();
+    }
+    function closeAddModal() {
+      addModal.style.display    = "none";
+      addBackdrop.style.display = "none";
+    }
 
     const REGIONS = ["Europe", "North America", "South America", "Asia", "Australia"];
+
+    // Phone calling-code → country name. +1 (US/Canada/Caribbean) and +7 (Russia/Kazakhstan) are
+    // intentionally omitted so the user resolves them manually.
+    const COUNTRY_CODES = {
+      "20": "Egypt", "27": "South Africa", "30": "Greece", "31": "Netherlands", "32": "Belgium",
+      "33": "France", "34": "Spain", "36": "Hungary", "39": "Italy", "40": "Romania", "41": "Switzerland",
+      "43": "Austria", "44": "United Kingdom", "45": "Denmark", "46": "Sweden", "47": "Norway",
+      "48": "Poland", "49": "Germany", "51": "Peru", "52": "Mexico", "53": "Cuba", "54": "Argentina",
+      "55": "Brazil", "56": "Chile", "57": "Colombia", "58": "Venezuela", "60": "Malaysia",
+      "61": "Australia", "62": "Indonesia", "63": "Philippines", "64": "New Zealand", "65": "Singapore",
+      "66": "Thailand", "81": "Japan", "82": "South Korea", "84": "Vietnam", "86": "China",
+      "90": "Turkey", "91": "India", "92": "Pakistan", "93": "Afghanistan", "94": "Sri Lanka",
+      "95": "Myanmar", "98": "Iran",
+      "211": "South Sudan", "212": "Morocco", "213": "Algeria", "216": "Tunisia", "218": "Libya",
+      "220": "Gambia", "221": "Senegal", "222": "Mauritania", "223": "Mali", "224": "Guinea",
+      "225": "Cote d'Ivoire", "226": "Burkina Faso", "227": "Niger", "228": "Togo", "229": "Benin",
+      "230": "Mauritius", "231": "Liberia", "232": "Sierra Leone", "233": "Ghana", "234": "Nigeria",
+      "235": "Chad", "236": "Central African Republic", "237": "Cameroon", "238": "Cape Verde",
+      "239": "Sao Tome and Principe", "240": "Equatorial Guinea", "241": "Gabon",
+      "242": "Republic of the Congo", "243": "DR Congo", "244": "Angola", "245": "Guinea-Bissau",
+      "248": "Seychelles", "249": "Sudan", "250": "Rwanda", "251": "Ethiopia", "252": "Somalia",
+      "253": "Djibouti", "254": "Kenya", "255": "Tanzania", "256": "Uganda", "257": "Burundi",
+      "258": "Mozambique", "260": "Zambia", "261": "Madagascar", "263": "Zimbabwe", "264": "Namibia",
+      "265": "Malawi", "266": "Lesotho", "267": "Botswana", "268": "Eswatini", "269": "Comoros",
+      "291": "Eritrea", "297": "Aruba", "298": "Faroe Islands", "299": "Greenland",
+      "350": "Gibraltar", "351": "Portugal", "352": "Luxembourg", "353": "Ireland", "354": "Iceland",
+      "355": "Albania", "356": "Malta", "357": "Cyprus", "358": "Finland", "359": "Bulgaria",
+      "370": "Lithuania", "371": "Latvia", "372": "Estonia", "373": "Moldova", "374": "Armenia",
+      "375": "Belarus", "376": "Andorra", "377": "Monaco", "378": "San Marino", "380": "Ukraine",
+      "381": "Serbia", "382": "Montenegro", "383": "Kosovo", "385": "Croatia", "386": "Slovenia",
+      "387": "Bosnia and Herzegovina", "389": "North Macedonia",
+      "420": "Czech Republic", "421": "Slovakia", "423": "Liechtenstein",
+      "501": "Belize", "502": "Guatemala", "503": "El Salvador", "504": "Honduras", "505": "Nicaragua",
+      "506": "Costa Rica", "507": "Panama", "509": "Haiti", "591": "Bolivia", "592": "Guyana",
+      "593": "Ecuador", "595": "Paraguay", "597": "Suriname", "598": "Uruguay",
+      "670": "Timor-Leste", "673": "Brunei", "674": "Nauru", "675": "Papua New Guinea",
+      "676": "Tonga", "677": "Solomon Islands", "678": "Vanuatu", "679": "Fiji", "680": "Palau",
+      "682": "Cook Islands", "685": "Samoa", "686": "Kiribati", "687": "New Caledonia",
+      "688": "Tuvalu", "689": "French Polynesia", "691": "Micronesia", "692": "Marshall Islands",
+      "850": "North Korea", "852": "Hong Kong", "853": "Macau", "855": "Cambodia", "856": "Laos",
+      "880": "Bangladesh", "886": "Taiwan",
+      "960": "Maldives", "961": "Lebanon", "962": "Jordan", "963": "Syria", "964": "Iraq",
+      "965": "Kuwait", "966": "Saudi Arabia", "967": "Yemen", "968": "Oman", "970": "Palestine",
+      "971": "United Arab Emirates", "972": "Israel", "973": "Bahrain", "974": "Qatar", "975": "Bhutan",
+      "976": "Mongolia", "977": "Nepal", "992": "Tajikistan", "993": "Turkmenistan",
+      "994": "Azerbaijan", "995": "Georgia", "996": "Kyrgyzstan", "998": "Uzbekistan",
+    };
+
+    function detectCountry(phone) {
+      const trimmed = (phone || "").trim();
+      if (!trimmed.startsWith("+")) return "";
+      const digits = trimmed.replace(/\D/g, "");
+      if (!digits) return "";
+      for (let len = Math.min(3, digits.length); len >= 1; len--) {
+        const code = digits.slice(0, len);
+        if (COUNTRY_CODES[code]) return COUNTRY_CODES[code];
+      }
+      return "";
+    }
+
+    let autoCountrySet = "";
 
     // Populate static region selects (add form + edit modal)
     ["addRegion", "editRegion"].forEach(id => {
@@ -166,6 +267,10 @@
 
     let accounts = [];
     let editAccountId = null;
+
+    // ephemeral state per account during the login flow (cleared on success)
+    const pendingPasswords = {}; // { accountId: "2FA password" } — set on add, used silently in code_sent confirm
+    const pendingCodes = {};     // { accountId: "Telegram code" } — preserves code value across re-renders
 
     // active filter sets — empty means "show all"
     const activeFilters = { statuses: new Set(), countries: new Set(), agents: new Set(), regions: new Set() };
@@ -325,14 +430,17 @@
           <div class="muted" style="margin-bottom:10px;">Code sent to ${phone}. Enter it below.</div>
           <div class="row">
             <input id="editCode" placeholder="Code from Telegram" />
+            <input type="password" id="editPassword" placeholder="2FA password (if enabled)" />
             <button onclick="editConfirmCode()">Confirm</button>
             <button onclick="editSendCode()">Resend code</button>
             <button class="danger" onclick="editDelete()">Delete account</button>
           </div>`;
+        document.getElementById("editCode").value = pendingCodes[a.id] || "";
+        document.getElementById("editPassword").value = pendingPasswords[a.id] || "";
 
       } else if (status === "2fa_required") {
         sec.innerHTML = `
-          <div class="muted" style="margin-bottom:10px;">2-step verification required.</div>
+          <div class="muted" style="margin-bottom:10px;">2-step verification required — enter your 2FA password.</div>
           <div class="row">
             <input id="editCode" placeholder="Code from Telegram" />
             <input type="password" id="editPassword" placeholder="2FA password" />
@@ -340,11 +448,16 @@
             <button onclick="editSendCode()">Resend code</button>
             <button class="danger" onclick="editDelete()">Delete account</button>
           </div>`;
+        document.getElementById("editCode").value = pendingCodes[a.id] || "";
+        document.getElementById("editPassword").value = pendingPasswords[a.id] || "";
 
       } else if (status === "active") {
         sec.innerHTML = `
           <div class="muted" style="margin-bottom:10px;">Account is active.</div>
-          <button onclick="editRefresh()">Refresh session</button>`;
+          <div class="row">
+            <button onclick="editRefresh()">Refresh session</button>
+            <button class="danger" onclick="editDelete()">Delete account</button>
+          </div>`;
 
       } else if (status === "banned") {
         sec.innerHTML = `
@@ -365,7 +478,9 @@
           </div>`;
 
       } else {
-        sec.innerHTML = `<div class="muted">Status: ${status}</div>`;
+        sec.innerHTML = `
+          <div class="muted" style="margin-bottom:10px;">Status: ${status}</div>
+          <button class="danger" onclick="editDelete()">Delete account</button>`;
       }
     }
 
@@ -381,6 +496,8 @@
 
     async function editSendCode() {
       if (!editAccountId) return;
+      // a fresh code invalidates any previously-typed code
+      delete pendingCodes[editAccountId];
       editOutput.textContent = "Sending code...";
       const r = await fetch(`/accounts/${editAccountId}/send_code`, { method: "POST" });
       const j = await r.json();
@@ -393,8 +510,13 @@
     async function editConfirmCode() {
       if (!editAccountId) return;
       const code     = (document.getElementById("editCode")?.value || "").trim();
-      const password = document.getElementById("editPassword")?.value || null;
+      const password = document.getElementById("editPassword")?.value || "";
       if (!code) { alert("Code is required"); return; }
+
+      // remember user inputs so a 2fa_required re-render keeps the code field populated
+      pendingCodes[editAccountId] = code;
+      if (password) pendingPasswords[editAccountId] = password;
+
       editOutput.textContent = "Confirming...";
       const r = await fetch(`/accounts/${editAccountId}/confirm_code`, {
         method: "POST",
@@ -407,7 +529,11 @@
       const a = accounts.find(x => x.id === editAccountId);
       if (a) {
         renderStatusSection(a);
-        if (j.ok && j.status === "active") closeEditModal();
+        if (j.ok && j.status === "active") {
+          delete pendingCodes[editAccountId];
+          delete pendingPasswords[editAccountId];
+          closeEditModal();
+        }
       }
     }
 
@@ -434,15 +560,26 @@
       if (j.ok) { closeEditModal(); await loadAccounts(); }
     }
 
-    // ── Add account form ────────────────────────────────────────
-    addBtn.addEventListener("click", () => { addForm.style.display = "block"; });
-    document.getElementById("cancelAdd").addEventListener("click", () => { addForm.style.display = "none"; });
+    // ── Add account modal ───────────────────────────────────────
+    addBtn.addEventListener("click", openAddModal);
+    document.getElementById("cancelAdd").addEventListener("click", closeAddModal);
+    addBackdrop.addEventListener("click", closeAddModal);
+
+    // Auto-detect country from the phone's calling code, but never overwrite a manual entry
+    document.getElementById("addPhone").addEventListener("input", (e) => {
+      const countryEl = document.getElementById("addCountry");
+      if (countryEl.value && countryEl.value !== autoCountrySet) return;
+      const detected = detectCountry(e.target.value);
+      countryEl.value = detected;
+      autoCountrySet = detected;
+    });
 
     document.getElementById("saveAdd").addEventListener("click", async () => {
-      const phone   = document.getElementById("addPhone").value.trim();
-      const country = document.getElementById("addCountry").value.trim();
-      const agent   = document.getElementById("addAgent").value.trim();
-      const region  = document.getElementById("addRegion").value;
+      const phone    = document.getElementById("addPhone").value.trim();
+      const country  = document.getElementById("addCountry").value.trim();
+      const agent    = document.getElementById("addAgent").value.trim();
+      const region   = document.getElementById("addRegion").value;
+      const password = document.getElementById("addPassword").value || "";
       if (!phone) { alert("Phone is required"); return; }
       const res = await fetch("/accounts", {
         method: "POST",
@@ -452,13 +589,16 @@
       const text = await res.text();
       detail.textContent = text;
       if (!res.ok) { alert("Account saving failed. See detail panel."); return; }
-      document.getElementById("addPhone").value   = "";
-      document.getElementById("addCountry").value = "";
-      document.getElementById("addAgent").value   = "";
-      document.getElementById("addRegion").value  = "";
-      addForm.style.display = "none";
+      const created = JSON.parse(text);
+      if (password) pendingPasswords[created.id] = password;
+      document.getElementById("addPhone").value    = "";
+      document.getElementById("addCountry").value  = "";
+      document.getElementById("addAgent").value    = "";
+      document.getElementById("addRegion").value   = "";
+      document.getElementById("addPassword").value = "0211";
+      closeAddModal();
       await loadAccounts();
-      openEditModal(JSON.parse(text).id);
+      openEditModal(created.id);
     });
 
     // ── Toast ───────────────────────────────────────────────────
