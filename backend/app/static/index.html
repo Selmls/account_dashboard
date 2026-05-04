@@ -55,6 +55,7 @@
   <div class="row">
     <button id="reloadBtn">Reload accounts</button>
     <button id="addBtn">Add account</button>
+    <button id="batchAddBtn">Batch add</button>
     <button id="exportBtn" class="primary">Export CSV</button>
     <span class="muted" id="lastLoaded"></span>
     <span style="flex:1"></span>
@@ -119,6 +120,51 @@
 
     <div class="row" style="margin-top:16px; justify-content:flex-end;">
       <button id="saveAdd" class="primary">Save</button>
+    </div>
+  </div>
+
+  <!-- Batch add modal -->
+  <div id="batchBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35);"></div>
+  <div id="batchModal" style="display:none; position:fixed; left:50%; top:8%; transform:translateX(-50%);
+    width:min(560px, 92vw); background:#fff; border:1px solid #eee; border-radius:16px; padding:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,.15); max-height:84vh; overflow-y:auto;">
+
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;">
+      <div>
+        <div style="font-weight:700; font-size:16px;">Batch add accounts</div>
+        <div class="muted">Country auto-detected per number · 2FA password defaults to <code>0211</code> · code is requested for each.</div>
+      </div>
+      <button id="cancelBatch">Close</button>
+    </div>
+
+    <div id="batchFormView" style="display:flex; flex-direction:column; gap:12px;">
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Phone numbers</span>
+        <textarea id="batchPhones" rows="6" placeholder="+44 7911..., +370 612..., +33 612..."
+          style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-family: inherit; resize: vertical;"></textarea>
+        <span class="muted" style="font-size:12px;">Separate by comma or newline. Each number must start with <code>+</code>.</span>
+      </label>
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Agent</span>
+        <input id="batchAgent" placeholder="Agent name (applied to all)" />
+      </label>
+    </div>
+
+    <div id="batchProgressView" style="display:none; flex-direction:column; gap:12px;">
+      <div id="batchProgressLabel" class="muted" style="font-size:13px;"></div>
+      <div class="row">
+        <input id="batchCodeInput" placeholder="Code from Telegram" style="flex:1;" />
+        <input type="password" id="batchPasswordInput" placeholder="2FA password" />
+        <button id="batchConfirmBtn" class="primary">Confirm</button>
+        <button id="batchSkipBtn">Skip</button>
+      </div>
+      <div id="batchProgressError" style="font-size:13px; color:#c62828;"></div>
+    </div>
+
+    <pre id="batchOutput" style="margin-top:12px; display:none;"></pre>
+
+    <div id="batchInitialActions" class="row" style="margin-top:16px; justify-content:flex-end;">
+      <button id="batchSubmit" class="primary">Add and send codes</button>
     </div>
   </div>
 
@@ -572,6 +618,184 @@
       const detected = detectCountry(e.target.value);
       countryEl.value = detected;
       autoCountrySet = detected;
+    });
+
+    // ── Batch add modal ─────────────────────────────────────────
+    const batchModal      = document.getElementById("batchModal");
+    const batchBackdrop   = document.getElementById("batchBackdrop");
+    const batchOutput     = document.getElementById("batchOutput");
+    const batchFormView   = document.getElementById("batchFormView");
+    const batchProgress   = document.getElementById("batchProgressView");
+    const batchActions    = document.getElementById("batchInitialActions");
+    const batchLabel      = document.getElementById("batchProgressLabel");
+    const batchError      = document.getElementById("batchProgressError");
+    const batchCodeInput  = document.getElementById("batchCodeInput");
+    const batchPwdInput   = document.getElementById("batchPasswordInput");
+
+    let batchResolver = null;  // resolves the promise the loop is awaiting
+    let batchAborted = false;  // set true when the modal is closed mid-run
+
+    function showBatchForm() {
+      batchFormView.style.display  = "flex";
+      batchProgress.style.display  = "none";
+      batchActions.style.display   = "flex";
+    }
+    function showBatchProgress() {
+      batchFormView.style.display  = "none";
+      batchProgress.style.display  = "flex";
+      batchActions.style.display   = "none";
+      batchError.textContent = "";
+    }
+    function awaitBatchInput() {
+      if (batchAborted) return Promise.resolve({ action: "abort" });
+      return new Promise(resolve => { batchResolver = resolve; });
+    }
+    function settleBatch(value) {
+      if (!batchResolver) return;
+      const r = batchResolver; batchResolver = null;
+      r(value);
+    }
+
+    function openBatchModal() {
+      batchOutput.style.display = "none";
+      batchOutput.textContent = "";
+      showBatchForm();
+      batchModal.style.display    = "block";
+      batchBackdrop.style.display = "block";
+      document.getElementById("batchPhones").focus();
+    }
+    function closeBatchModal() {
+      // tell the loop (whether currently awaiting input or mid-fetch) to stop
+      batchAborted = true;
+      settleBatch({ action: "abort" });
+      batchModal.style.display    = "none";
+      batchBackdrop.style.display = "none";
+    }
+
+    document.getElementById("batchAddBtn").addEventListener("click", openBatchModal);
+    document.getElementById("cancelBatch").addEventListener("click", closeBatchModal);
+    batchBackdrop.addEventListener("click", closeBatchModal);
+
+    document.getElementById("batchConfirmBtn").addEventListener("click", () => {
+      const code = batchCodeInput.value.trim();
+      const password = batchPwdInput.value || "";
+      if (!code) { alert("Code is required (or click Skip)"); return; }
+      settleBatch({ action: "confirm", code, password });
+    });
+    document.getElementById("batchSkipBtn").addEventListener("click", () => {
+      settleBatch({ action: "skip" });
+    });
+
+    document.getElementById("batchSubmit").addEventListener("click", async () => {
+      const raw   = document.getElementById("batchPhones").value;
+      const agent = document.getElementById("batchAgent").value.trim();
+
+      const phones = raw.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+      if (!phones.length) { alert("Enter at least one phone number."); return; }
+
+      const invalid = phones.filter(p => !p.startsWith("+"));
+      if (invalid.length) {
+        alert(`These numbers don't start with "+":\n\n${invalid.join("\n")}`);
+        return;
+      }
+
+      batchAborted = false;
+      showBatchProgress();
+      const results = { created: 0, codeSent: 0, activated: 0, skipped: [], failed: [] };
+
+      outer: for (let i = 0; i < phones.length; i++) {
+        if (batchAborted) break;
+        const phone = phones[i];
+
+        // 1) create account
+        batchLabel.textContent = `${i + 1}/${phones.length} · ${phone} — creating…`;
+        batchError.textContent = "";
+        let id;
+        try {
+          const country = detectCountry(phone);
+          const createRes = await fetch("/accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phone, country: country || null, agent: agent || null, region: null }),
+          });
+          if (!createRes.ok) {
+            const err = await createRes.json().catch(() => ({}));
+            results.failed.push(`${phone} — create: ${err.detail || createRes.status}`);
+            continue;
+          }
+          const created = await createRes.json();
+          id = created.id;
+          results.created++;
+          pendingPasswords[id] = "0211";
+        } catch (e) {
+          results.failed.push(`${phone} — ${e.message}`);
+          continue;
+        }
+
+        if (batchAborted) break;
+
+        // 2) send code
+        batchLabel.textContent = `${i + 1}/${phones.length} · ${phone} — sending code…`;
+        try {
+          const sendRes = await fetch(`/accounts/${id}/send_code`, { method: "POST" });
+          if (!sendRes.ok) {
+            const err = await sendRes.json().catch(() => ({}));
+            results.failed.push(`${phone} — send_code: ${err.detail || sendRes.status}`);
+            continue;
+          }
+          results.codeSent++;
+        } catch (e) {
+          results.failed.push(`${phone} — ${e.message}`);
+          continue;
+        }
+
+        // 3) wait for the user to enter the code, retry on failure until success/skip/abort
+        batchCodeInput.value = "";
+        batchPwdInput.value  = "0211";
+        while (true) {
+          batchLabel.textContent = `${i + 1}/${phones.length} · ${phone} — enter the Telegram code`;
+          batchCodeInput.focus();
+          const input = await awaitBatchInput();
+
+          if (input.action === "abort") break outer;
+          if (input.action === "skip") { results.skipped.push(phone); break; }
+
+          batchLabel.textContent = `${i + 1}/${phones.length} · ${phone} — confirming…`;
+          batchError.textContent = "";
+          try {
+            const confirmRes = await fetch(`/accounts/${id}/confirm_code`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code: input.code, password: input.password || null }),
+            });
+            const j = await confirmRes.json().catch(() => ({}));
+            if (confirmRes.ok && j.ok && j.status === "active") {
+              delete pendingPasswords[id];
+              results.activated++;
+              break;
+            }
+            batchError.textContent = j.detail || `Failed (${confirmRes.status})`;
+          } catch (e) {
+            batchError.textContent = e.message;
+          }
+        }
+      }
+
+      await loadAccounts();
+      showBatchForm();
+
+      const summary = `${results.created} created · ${results.codeSent} codes sent · ${results.activated} activated · ${results.skipped.length} skipped · ${results.failed.length} failed`;
+      const lines = [summary];
+      if (results.skipped.length) lines.push("", "Skipped (left in code_sent):", ...results.skipped.map(p => `  ${p}`));
+      if (results.failed.length)  lines.push("", "Failed:", ...results.failed.map(s => `  ${s}`));
+      batchOutput.textContent = lines.join("\n");
+      batchOutput.style.display = "block";
+      showToast(summary);
+
+      if (results.activated === phones.length) {
+        document.getElementById("batchPhones").value = "";
+        document.getElementById("batchAgent").value  = "";
+      }
     });
 
     document.getElementById("saveAdd").addEventListener("click", async () => {
