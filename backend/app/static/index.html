@@ -376,6 +376,7 @@
           <td class="right">
             <button onclick="openEditModal(${a.id})">Edit</button>
             <button onclick="latest777(${a.id})">777000</button>
+            <button class="danger" onclick="cleanAccount(${a.id})">Clean</button>
           </td>
         </tr>`;
     }
@@ -411,6 +412,35 @@
       const r = await fetch(`/accounts/${id}/telegram/777000/latest`);
       const j = await r.json();
       detail.textContent = JSON.stringify(j, null, 2);
+    }
+
+    async function cleanAccount(id) {
+      const a = accounts.find(x => x.id === id);
+      if (!a) return;
+      if (a.status !== "active") {
+        alert(`Account must be active to clean (currently: ${a.status}).`);
+        return;
+      }
+      if (!confirm(
+        `Clean account ${a.phone}?\n\n` +
+        `This will LEAVE every group and channel and DELETE all 1:1 chat history on this account's side. ` +
+        `Saved Messages is preserved. This cannot be undone.`
+      )) return;
+
+      detail.textContent = `Cleaning ${a.phone}…`;
+      try {
+        const r = await fetch(`/accounts/${id}/clean`, { method: "POST" });
+        const j = await r.json();
+        detail.textContent = JSON.stringify(j, null, 2);
+        const c = j.counts || {};
+        let toastMsg = `${a.phone}: left ${c.channels || 0} channels · ${c.groups || 0} groups · cleared ${c.private || 0} chats`;
+        if (j.flood_wait_seconds) toastMsg += `\nstopped early — flood_wait ${j.flood_wait_seconds}s`;
+        if (j.errors && j.errors.length) toastMsg += `\n${j.errors.length} errors`;
+        showToast(toastMsg);
+      } catch (e) {
+        detail.textContent = "Clean failed: " + e.message;
+        showToast("Clean failed: " + e.message);
+      }
     }
 
     // ── Edit modal ──────────────────────────────────────────────

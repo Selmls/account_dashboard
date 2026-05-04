@@ -309,6 +309,57 @@ async def refresh_account(account_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Not found")
     return await _refresh_one(account_id)
 
+@app.post("/accounts/{account_id}/clean")
+async def clean_account(account_id: int, db: Session = Depends(get_db)):
+    acc = db.get(TelegramAccount, account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if acc.status != TelegramAccountStatus.ACTIVE or not acc.session_enc:
+        raise HTTPException(status_code=400, detail=f"Account not active (status={acc.status})")
+
+    client = client_from_encrypted_session(acc.session_enc)
+    counts = {"channels": 0, "groups": 0, "private": 0, "skipped": 0}
+    errors: list[str] = []
+    flood_wait_seconds: Optional[int] = None
+
+    try:
+        await client.connect()
+        me = await client.get_me()
+        async for dialog in client.iter_dialogs():
+            entity = dialog.entity
+            # Skip Saved Messages (chat with self)
+            if getattr(entity, "id", None) == me.id:
+                counts["skipped"] += 1
+                continue
+            try:
+                await client.delete_dialog(entity, revoke=False)
+                if dialog.is_channel:
+                    counts["channels"] += 1
+                elif dialog.is_group:
+                    counts["groups"] += 1
+                else:
+                    counts["private"] += 1
+            except FloodWaitError as e:
+                # Telegram is throttling — stop and report so the user can retry later
+                flood_wait_seconds = int(e.seconds)
+                break
+            except Exception as e:
+                errors.append(f"{getattr(entity, 'id', '?')}: {e}")
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+    return {
+        "ok": flood_wait_seconds is None,
+        "phone": acc.phone,
+        "counts": counts,
+        "flood_wait_seconds": flood_wait_seconds,
+        "errors": errors,
+    }
+
+
 @app.get("/accounts/{account_id}/telegram/777000/latest")
 async def latest_service_message(account_id: int, db: Session = Depends(get_db)):
     acc = db.get(TelegramAccount, account_id)
